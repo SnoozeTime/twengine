@@ -2,8 +2,11 @@ use sdl2::render::{Canvas, Texture, RenderTarget, TextureQuery, TextureCreator};
 use sdl2::pixels::Color;
 use sdl2::rect::{Point, Rect};
 use std::collections::HashMap;
+use super::math::Vector2d;
 
 use serde_derive::{Serialize, Deserialize};
+
+use super::physics::{BodyType, RigidBody};
 
 #[macro_export]
 macro_rules! rect(
@@ -21,8 +24,8 @@ impl Text {
     pub fn render<T: RenderTarget>(&self, canvas: &mut Canvas<T>, fonts: &mut HashMap<char, Texture>, x: i32, y: i32) {
 
         let mut tx = x;
-        for (i, c) in self.content.char_indices() {
-            let mut texture: &mut Texture = fonts.get_mut(&c).expect(&format!("no '{}' in map", c));
+        for (_, c) in self.content.char_indices() {
+            let texture: &mut Texture = fonts.get_mut(&c).expect(&format!("no '{}' in map", c));
             texture.set_color_mod(self.color.r,
                                   self.color.g,
                                   self.color.b);
@@ -37,11 +40,7 @@ impl Text {
 
 #[derive(Serialize, Deserialize)]
 pub struct GameObject {
-    // position
-    pub x: i32,
-    pub y: i32,
-    pub w: u32,
-    pub h: u32,
+    pub body: RigidBody,
 
     r: u8,
     g: u8,
@@ -49,50 +48,91 @@ pub struct GameObject {
 }
 
 impl GameObject {
-    pub fn new(x: i32, y: i32, w: u32, h: u32, r: u8, g: u8, b: u8) -> GameObject {
+
+    pub fn new(x: f32, y: f32, w: u32, h: u32, r: u8, g: u8, b: u8, body_type: BodyType) -> GameObject {
+        let body = RigidBody::new(x, y, w, h, body_type);
         GameObject {
-            x,
-            y,
-            w,
-            h,
+            body,
             r,
             g,
             b,
         }
     }
 
-    pub fn render<T: RenderTarget>(&self, canvas: &mut Canvas<T>) {
+    pub fn render<T: RenderTarget>(&self, canvas: &mut Canvas<T>, camera: &Camera) {
         canvas.set_draw_color(Color::RGB(self.r, self.g, self.b));
-        canvas.fill_rect(rect!(self.x, self.y, self.w, self.h));
+
+        let global_pos = Vector2d::new(self.body.position.x as i32, self.body.position.y as i32);
+        let local_pos = camera.toLocal(global_pos);
+        canvas.fill_rect(rect!(local_pos.x, local_pos.y,
+                               self.body.shape.w, self.body.shape.h)).expect("GameObject render failed");
     }
 
     pub fn contains_point(&self, x: i32, y: i32) -> bool {
-        rect!(self.x, self.y, self.w, self.h).contains_point(Point::new(x, y))
+        rect!(self.body.position.x, self.body.position.y,
+              self.body.shape.w, self.body.shape.h).contains_point(Point::new(x, y))
     }    
+
+    pub fn x(&self) -> f32 {
+        self.body.position.x
+    }
+
+    pub fn y(&self) -> f32 {
+        self.body.position.y
+    }
+
+    pub fn w(&self) -> u32 {
+        self.body.shape.w
+    }
+
+    pub fn h(&self) -> u32 {
+        self.body.shape.h
+    }
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct Scene {
     pub gameobjects: Vec<GameObject>,
+    pub camera: Camera,
 }
 
 impl Scene {
     pub fn new() -> Scene {
-        Scene { gameobjects: Vec::new() }
+        Scene { gameobjects: Vec::new(), camera: Camera::new() }
     }
 
-    pub fn add_rect(&mut self, x: i32, y: i32, w: u32, h: u32, color: Color) {
-        self.gameobjects.push(GameObject::new(x, y, w, h, color.r, color.g, color.b));
+    pub fn add_rect(&mut self, x: f32, y: f32, w: u32, h: u32, color: Color) {
+        self.gameobjects.push(GameObject::new(x, y, w, h, color.r, color.g, color.b, BodyType::Dynamic));
     }
+
+    pub fn add_static(&mut self, x: f32, y: f32, w: u32, h: u32, color: Color) {
+        self.gameobjects.push(GameObject::new(x, y, w, h, color.r, color.g, color.b, BodyType::Static));
+    }
+
 
     pub fn render<T: RenderTarget>(&self, canvas: &mut Canvas<T>) {
         for go in self.gameobjects.iter() {
-            go.render(canvas);
+            go.render(canvas, &self.camera);
         }
     }
 
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Camera {
+    pub position: Vector2d<i32>,
+}
+
+impl Camera {
+
+    pub fn new() -> Camera {
+        Camera { position: Vector2d::new(0, 0)}
+    }
+
+    pub fn toLocal(&self, global_pos: Vector2d<i32>) -> Vector2d<i32> {
+        global_pos - self.position
+    }
+}
 
 pub struct TextureCache<'a> {
     pub char_textures: HashMap<char, Texture<'a>>,

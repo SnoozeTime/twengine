@@ -1,4 +1,4 @@
-use super::core::{Text, Scene, TextureCache};
+use super::core::{Scene, TextureCache};
 use super::context::Context;
 use std::collections::HashSet;
 
@@ -6,7 +6,7 @@ use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 
-use serde_json::{Value, Error};
+use super::physics::{RigidBody, PhysicSystem};
 
 pub enum GameAction {
     QUIT,
@@ -15,6 +15,8 @@ pub enum GameAction {
 pub struct Game {
     current_scene: Scene,
     prev_buttons: HashSet<sdl2::mouse::MouseButton>,
+
+    physic_system: PhysicSystem,
 }
 
 impl Game {
@@ -23,6 +25,7 @@ impl Game {
         Game {
             current_scene: Scene::new(),
             prev_buttons: HashSet::new(),
+            physic_system: PhysicSystem{},
         }
     }
 
@@ -31,7 +34,7 @@ impl Game {
         self.current_scene = serde_json::from_str(&data).unwrap();
     }
 
-    pub fn update(&mut self, events: &mut sdl2::EventPump) -> Option<GameAction> {
+    pub fn update(&mut self, events: &mut sdl2::EventPump, dt: u32) -> Option<GameAction> {
 
         for event in events.poll_iter() {
             match event {
@@ -48,16 +51,18 @@ impl Game {
         let buttons = state.pressed_mouse_buttons().collect();
 
         // Get the difference between the new and old sets.
-        let new_buttons = &buttons - &self.prev_buttons;
-        let old_buttons = &self.prev_buttons - &buttons;
+        //let new_buttons = &buttons - &self.prev_buttons;
+        //let old_buttons = &self.prev_buttons - &buttons;
 
 
         self.prev_buttons = buttons;
 
         // Update scene elements.
-        for go in &mut self.current_scene.gameobjects {
-            go.x -= 1;
-        }
+        // TODO not so good here... maybe store rigid bodies in the physic system..
+        let bodies: Vec<&mut RigidBody> = self.current_scene.gameobjects.iter_mut()
+            .map(|go| &mut go.body)
+            .collect();
+        self.physic_system.update(bodies, dt);
 
         None
     }

@@ -22,8 +22,6 @@ impl Context {
             .build()?;
 
         let canvas = window.into_canvas().build()?;
-        let texture_creator = canvas.texture_creator();
-        
        
         Ok(Context { sdl_context, video_subsystem, canvas, font_context,})
     }

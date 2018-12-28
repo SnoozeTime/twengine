@@ -1,5 +1,5 @@
 
-use super::core::{Text, Scene, TextureCache, GameObject};
+use super::core::{Text, Scene, TextureCache};
 use super::context::Context;
 use std::collections::HashSet;
 
@@ -14,6 +14,7 @@ pub enum EditorAction {
     RUN,
     SWITCH_TO_ADD,
     SWITCH_TO_SELECT,
+    SWITCH_TO_STATIC,
 }
 
 pub struct Button {
@@ -35,7 +36,7 @@ impl Button {
 
     pub fn render<T: sdl2::render::RenderTarget>(&self, canvas: &mut sdl2::render::Canvas<T>, textures: &mut TextureCache) {
         canvas.set_draw_color(self.shape_color);
-        canvas.fill_rect(self.shape);
+        canvas.fill_rect(self.shape).expect("Button render failed");
         self.label.render(canvas, &mut textures.char_textures, self.shape.x, self.shape.y);
     }
 
@@ -48,6 +49,7 @@ impl Button {
 #[derive(PartialEq, Debug)]
 enum EditorState {
     ADD_RECT,
+    ADD_STATIC,
     SELECT,
 }
 
@@ -58,7 +60,7 @@ pub struct Editor {
     pub current_scene: Scene,
     prev_buttons: HashSet<sdl2::mouse::MouseButton>,
     state: EditorState,
-    
+
     selection: Option<usize>,
 }
 
@@ -78,6 +80,12 @@ impl Editor {
                 Color::RGB(255, 255, 255),
                 Color::RGB(255, 255, 255),
                 EditorAction::SWITCH_TO_SELECT));
+        buttons.push(Button::new(
+                "F".to_string(),
+                Rect::new(70, 0, 20, 20),
+                Color::RGB(255, 255, 255),
+                Color::RGB(255, 255, 255),
+                EditorAction::SWITCH_TO_STATIC));
         Editor {
             current_scene: Scene::new(),
             debug_text: Text { content: String::new(), color: Color::RGB(255, 0, 0) },
@@ -95,6 +103,10 @@ impl Editor {
                 Event::KeyDown { keycode: Some(Keycode::Escape), .. } |
                     Event::Quit { .. } => return Some(EditorAction::QUIT),
                     Event::KeyDown { keycode: Some(Keycode::Space), .. } => return Some(EditorAction::RUN),
+                    Event::KeyDown { keycode: Some(Keycode::Right), .. } => self.current_scene.camera.position.x += 1,
+                    Event::KeyDown { keycode: Some(Keycode::Left), .. } => self.current_scene.camera.position.x -= 1,
+                    Event::KeyDown { keycode: Some(Keycode::Up), .. } => self.current_scene.camera.position.y -= 1,
+                    Event::KeyDown { keycode: Some(Keycode::Down), .. } => self.current_scene.camera.position.y += 1,
                     _ => {}
             }
         }
@@ -109,7 +121,8 @@ impl Editor {
         let new_buttons = &buttons - &self.prev_buttons;
         let old_buttons = &self.prev_buttons - &buttons;
 
-        let current_color = Color::RGB(0, 0, 255);
+        let current_color = Color::RGB(230, 230, 250);
+        let current_static_color = Color::RGB(130, 60, 255);
         if !new_buttons.is_empty() {
             let mut button_clicked = false;
             // detect if click on  editor button.
@@ -117,36 +130,44 @@ impl Editor {
                 if button.is_pressed(state.x(), state.y()) {
                     button_clicked = true;
                     match button.action {
-                    EditorAction::QUIT => return Some(EditorAction::QUIT),
-                    EditorAction::RUN => return Some(EditorAction::RUN),
-                    EditorAction::SWITCH_TO_SELECT => self.state = EditorState::SELECT,
-                    EditorAction::SWITCH_TO_ADD => self.state = EditorState::ADD_RECT,
+                        EditorAction::QUIT => return Some(EditorAction::QUIT),
+                        EditorAction::RUN => return Some(EditorAction::RUN),
+                        EditorAction::SWITCH_TO_SELECT => self.state = EditorState::SELECT,
+                        EditorAction::SWITCH_TO_ADD => self.state = EditorState::ADD_RECT,
+                        EditorAction::SWITCH_TO_STATIC => self.state = EditorState::ADD_STATIC,
                     }
                 }
             }
 
             if !button_clicked {
-                
-                if self.state == EditorState::ADD_RECT {
-                    // If not click on a button, execute whatever action 
-                    self.current_scene.add_rect(state.x(), state.y(), 20, 20, current_color.clone());
-                } else if self.state == EditorState::SELECT {
-                    let mut found_selection = false;
-                    for (idx, go) in self.current_scene.gameobjects.iter().enumerate() {
-                        if go.contains_point(state.x(), state.y()) {
-                            self.selection = Some(idx);
-                            found_selection = true;
-                            break;
-                        }
-                    }
 
-                    if !found_selection {
-                        self.selection = None;
-                    }
+                match self.state {
+                    EditorState::ADD_RECT => {
+                        // If not click on a button, execute whatever action 
+                        self.current_scene.add_rect(state.x() as f32, state.y() as f32, 20, 20, current_color.clone());
+                    },
+                    EditorState::SELECT => {
+                        let mut found_selection = false;
+                        for (idx, go) in self.current_scene.gameobjects.iter().enumerate() {
+                            if go.contains_point(state.x(), state.y()) {
+                                self.selection = Some(idx);
+                                found_selection = true;
+                                break;
+                            }
+                        }
+
+                        if !found_selection {
+                            self.selection = None;
+                        }
+                    },
+                    EditorState::ADD_STATIC => {
+                        self.current_scene.add_static(state.x() as f32, state.y() as f32, 50, 50, current_static_color.clone());
+
+                    },
                 }
             }
 
-            
+
         }
 
         self.prev_buttons = buttons;
@@ -156,7 +177,7 @@ impl Editor {
     }
 
     pub fn render(&self, context: &mut Context, mut textures: &mut TextureCache) {
-        let mut canvas = &mut context.canvas;
+        let canvas = &mut context.canvas;
         canvas.set_draw_color(Color::RGB(0, 0, 0));
         canvas.clear();
 
@@ -164,14 +185,14 @@ impl Editor {
             button.render(canvas, &mut textures);
         }
 
-        self.debug_text.render(canvas, &mut textures.char_textures, 70, 0);
+        self.debug_text.render(canvas, &mut textures.char_textures, 150, 0);
         self.current_scene.render(canvas);
 
         if let Some(idx) = self.selection {
             let go = &self.current_scene.gameobjects[idx];
-            let rect = Rect::new(go.x, go.y, go.w, go.h);
+            let rect = Rect::new(go.x() as i32, go.y() as i32, go.w(), go.h());
             canvas.set_draw_color(Color::RGB(255, 255, 255));
-            canvas.draw_rect(rect);
+            canvas.draw_rect(rect).expect("Could not draw rect: Editor::render");
         }
 
         canvas.present();
